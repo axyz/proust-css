@@ -137,7 +137,7 @@ mod tests {
                 self.css.push_str(&format!("{}:{};", decl.prop, decl.value));
             }
         }
-        let mut p = Parser::new("foo { hello: world ; foo : bar; @foo { a:b } }");
+        let mut p = Parser::new("/* comment */foo { hello: world ; foo : bar; @foo { a:b } }");
 
         let mut m = Minifier::new();
 
