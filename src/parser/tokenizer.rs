@@ -1,11 +1,13 @@
 use core::str::Chars;
-use std::iter::Peekable;
+use std::iter::{Enumerate, Peekable};
 
 const NEWLINE: char = '\n';
 const SPACE: char = ' ';
 const TAB: char = '\t';
 const CR: char = '\r';
 const FEED: char = '\u{c}'; // \f
+const SLASH: char = '/';
+const ASTERISK: char = '*';
 const OPEN_CURLY: char = '{';
 const CLOSED_CURLY: char = '}';
 const SEMICOLON: char = ';';
@@ -15,6 +17,7 @@ const AT: char = '@';
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
     Space,
+    Comment,
     Word,
     OpenCurly,
     ClosedCurly,
@@ -27,34 +30,60 @@ pub enum TokenKind {
 pub struct Token(pub TokenKind, pub usize, pub usize);
 
 pub struct Tokenizer<'a> {
-    iter: Peekable<Chars<'a>>,
-    position: usize,
+    iter: Peekable<Enumerate<Chars<'a>>>,
 }
 
 impl<'a> Tokenizer<'a> {
     pub fn new(input: &'a str) -> Tokenizer<'a> {
         Tokenizer {
-            iter: input.chars().peekable(),
-            position: 0,
+            iter: input.chars().enumerate().peekable(),
         }
+    }
+
+    pub fn peek_n(&mut self, n: usize) -> Option<(usize, char)> {
+        let mut iter = self.iter.clone();
+        iter.nth(n)
     }
 }
 
 macro_rules! match_white_space {
     () => {
-        Some(SPACE) | Some(TAB) | Some(NEWLINE) | Some(CR) | Some(FEED)
+        Some((_, SPACE)) | Some((_, TAB)) | Some((_, NEWLINE)) | Some((_, CR)) | Some((_, FEED))
     };
 }
 
-macro_rules! match_white_space_peek {
+macro_rules! match_word_ending {
     () => {
-        Some(&SPACE) | Some(&TAB) | Some(&NEWLINE) | Some(&CR) | Some(&FEED)
+        Some((_, OPEN_CURLY))
+            | Some((_, CLOSED_CURLY))
+            | Some((_, COLON))
+            | Some((_, SEMICOLON))
+            | Some((_, AT))
     };
 }
 
-macro_rules! match_word_ending_peek {
-    () => {
-        Some(&OPEN_CURLY) | Some(&CLOSED_CURLY) | Some(&COLON) | Some(&SEMICOLON) | Some(&AT)
+macro_rules! consume {
+    ($input:ident, $start:ident) => {
+        if let Some((pos, _)) = $input.next() {
+            $start = pos
+        };
+    };
+    ($input:ident, $expr:expr) => {
+        if let Some((_, _)) = $input.next() {
+            $expr
+        };
+    }
+}
+
+macro_rules! T {
+    ($kind:ident, $start:expr, $end:expr) => {
+        Some(Token(TokenKind::$kind, $start, $end))
+    };
+}
+
+macro_rules! match_token {
+    ($expr:ident) => {
+        Some((_, $expr))
     };
 }
 
@@ -63,38 +92,93 @@ impl Iterator for Tokenizer<'_> {
 
     fn next(&mut self) -> Option<Token> {
         let input = self.iter.by_ref();
-        let start = self.position;
-        let next = match input.next() {
+        let mut start = 0;
+        let mut offset = 0;
+        match input.peek() {
             match_white_space!() => {
-                while let match_white_space_peek!() = input.peek() {
-                    input.next();
-                    self.position += 1;
+                consume!(input, start);
+                while let match_white_space!() = input.peek() {
+                    consume!(input, offset += 1);
                 }
-                Some(Token(TokenKind::Space, start, self.position))
+                T!(Space, start, start + offset)
             }
-            Some(OPEN_CURLY) => Some(Token(TokenKind::OpenCurly, start, self.position)),
-            Some(CLOSED_CURLY) => Some(Token(TokenKind::ClosedCurly, start, self.position)),
-            Some(COLON) => Some(Token(TokenKind::Colon, start, self.position)),
-            Some(SEMICOLON) => Some(Token(TokenKind::Semicolon, start, self.position)),
-            Some(AT) => Some(Token(TokenKind::At, start, self.position)),
+            match_token!(SLASH) => {
+                consume!(input, start);
+                if let match_token!(ASTERISK) = input.peek() {
+                    consume!(input, offset += 1);
+                    loop {
+                        match input.peek() {
+                            match_token!(ASTERISK) => {
+                                if let match_token!(SLASH) = input.clone().nth(1) {
+                                    consume!(input, offset += 1);
+                                    consume!(input, offset += 1);
+                                    break;
+                                } else {
+                                    consume!(input, offset += 1);
+                                }
+                            }
+                            None => break,
+                            _ => {
+                                consume!(input, offset += 1);
+                            }
+                        }
+                    }
+                    T!(Comment, start, start + offset)
+                } else {
+                    loop {
+                        match input.peek() {
+                            match_word_ending!() | match_white_space!() => break,
+                            None => break,
+                            _ => {
+                                consume!(input, offset += 1);
+                            }
+                        }
+                    }
+                    T!(Word, start, start + offset)
+                }
+            }
+            match_token!(OPEN_CURLY) => {
+                consume!(input, start);
+                T!(OpenCurly, start, start + offset)
+            }
+            match_token!(CLOSED_CURLY) => {
+                consume!(input, start);
+                T!(ClosedCurly, start, start + offset)
+            }
+            match_token!(COLON) => {
+                consume!(input, start);
+                T!(Colon, start, start + offset)
+            }
+            match_token!(SEMICOLON) => {
+                consume!(input, start);
+                T!(Semicolon, start, start + offset)
+            }
+            match_token!(AT) => {
+                consume!(input, start);
+                T!(At, start, start + offset)
+            }
             None => None,
             _ => {
+                consume!(input, start);
                 loop {
                     match input.peek() {
-                        match_word_ending_peek!() | match_white_space_peek!() => break,
+                        match_word_ending!() | match_white_space!() => break,
+                        match_token!(SLASH) => {
+                            if let match_token!(ASTERISK) = input.clone().nth(1) {
+                                break;
+                            } else {
+                                consume!(input, offset += 1);
+                            }
+                        }
                         None => break,
                         _ => {
-                            self.position += 1;
-                            input.next();
+                            consume!(input, offset += 1);
                         }
                     }
                 }
-                Some(Token(TokenKind::Word, start, self.position))
+                T!(Word, start, start + offset)
             }
-        };
-
-        self.position += 1;
-        next
+        }
     }
 }
 
@@ -104,26 +188,28 @@ mod tests {
 
     #[test]
     fn tokenize() {
-        let t = Tokenizer::new("    \nabc { foo: bar; }foo baz");
+        let t = Tokenizer::new("/* foo */    \nabc { foo: bar; }foo baz/*foo*/");
         let res = t.collect::<Vec<Token>>();
         assert_eq!(
             res,
             vec![
-                Token(Space, 0, 4),
-                Token(Word, 5, 7),
-                Token(Space, 8, 8),
-                Token(OpenCurly, 9, 9),
-                Token(Space, 10, 10),
-                Token(Word, 11, 13),
-                Token(Colon, 14, 14),
-                Token(Space, 15, 15),
-                Token(Word, 16, 18),
-                Token(Semicolon, 19, 19),
-                Token(Space, 20, 20),
-                Token(ClosedCurly, 21, 21),
-                Token(Word, 22, 24),
-                Token(Space, 25, 25),
-                Token(Word, 26, 28),
+                Token(Comment, 0, 8),
+                Token(Space, 9, 13),
+                Token(Word, 14, 16),
+                Token(Space, 17, 17),
+                Token(OpenCurly, 18, 18),
+                Token(Space, 19, 19),
+                Token(Word, 20, 22),
+                Token(Colon, 23, 23),
+                Token(Space, 24, 24),
+                Token(Word, 25, 27),
+                Token(Semicolon, 28, 28),
+                Token(Space, 29, 29),
+                Token(ClosedCurly, 30, 30),
+                Token(Word, 31, 33),
+                Token(Space, 34, 34),
+                Token(Word, 35, 37),
+                Token(Comment, 38, 44),
             ]
         );
     }

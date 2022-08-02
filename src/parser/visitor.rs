@@ -23,6 +23,8 @@ pub trait Visitor {
     }
 
     fn visit_declaration(&mut self, _: &Declaration) {}
+
+    fn visit_comment(&mut self, _: &Comment) {}
 }
 
 pub fn walk_root<V: Visitor>(visitor: &mut V, root: &Root) {
@@ -30,6 +32,7 @@ pub fn walk_root<V: Visitor>(visitor: &mut V, root: &Root) {
         match child {
             RootChild::Rule(rule) => visitor.visit_rule(rule),
             RootChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
+            RootChild::Comment(comment) => visitor.visit_comment(comment),
         }
     }
 }
@@ -39,6 +42,7 @@ pub fn walk_rule<V: Visitor>(visitor: &mut V, rule: &Rule) {
         match child {
             BlockChild::Declaration(decl) => visitor.visit_declaration(decl),
             BlockChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
+            BlockChild::Comment(comment) => visitor.visit_comment(comment),
         }
     }
 }
@@ -48,6 +52,7 @@ pub fn walk_at_rule<V: Visitor>(visitor: &mut V, at_rule: &AtRule) {
         match child {
             BlockChild::Declaration(decl) => visitor.visit_declaration(decl),
             BlockChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
+            BlockChild::Comment(comment) => visitor.visit_comment(comment),
         }
     }
 }

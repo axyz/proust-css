@@ -6,6 +6,13 @@ pub mod tokenizer;
 pub mod visitor;
 
 #[derive(Debug, PartialEq)]
+pub struct  Comment<'a> {
+    pub text: &'a str,
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Declaration<'a> {
     pub prop: &'a str,
     pub value: &'a str,
@@ -26,6 +33,7 @@ pub struct AtRule<'a> {
 pub enum BlockChild<'a> {
     AtRule(AtRule<'a>),
     Declaration(Declaration<'a>),
+    Comment(Comment<'a>)
 }
 
 #[derive(Debug, PartialEq)]
@@ -40,6 +48,7 @@ pub struct Rule<'a> {
 pub enum RootChild<'a> {
     Rule(Rule<'a>),
     AtRule(AtRule<'a>),
+    Comment(Comment<'a>)
 }
 
 #[derive(Debug, PartialEq)]
@@ -74,6 +83,7 @@ impl<'a> Parser<'a> {
                 Token(Space, ..) => self.skip_while(|t| matches!(t, Some(Token(Space, ..)))),
                 Token(At, ..) => nodes.push(RootChild::AtRule(self.parse_at_rule()?)),
                 Token(Word, ..) => nodes.push(RootChild::Rule(self.parse_rule()?)),
+                Token(Comment, ..) => nodes.push(RootChild::Comment(self.parse_comment()?)),
                 _ => {
                     self.next_token();
                 }
@@ -82,6 +92,21 @@ impl<'a> Parser<'a> {
 
         let end = self.pos;
         Ok(Root { nodes, start, end })
+    }
+
+    fn parse_comment(&mut self) -> Result<Comment<'a>, ParseError> {
+        let start = self.pos;
+
+        let text = if let Some(token) = self.next_token() {
+            let Token(_, start, end) = token;
+            &self.source[start + 2..end - 1]
+        } else {
+            return Err(ParseError::Error);
+        };
+
+        let end = self.pos;
+
+        Ok(Comment { text, start, end })
     }
 
     fn parse_declaration(&mut self) -> Result<Declaration<'a>, ParseError> {
@@ -96,10 +121,10 @@ impl<'a> Parser<'a> {
             return Err(ParseError::Error);
         };
 
-        self.skip_while(|t| matches!(t, Some(Token(Space, ..))));
+        self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
 
         if let Some(Token(Colon, ..)) = self.next_token() {
-            self.skip_while(|t| matches!(t, Some(Token(Space, ..))));
+            self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
         } else {
             return Err(ParseError::Error);
         }
@@ -128,7 +153,9 @@ impl<'a> Parser<'a> {
 
         self.skip_while(|t| !matches!(t, Some(Token(OpenCurly, ..))));
 
-        let selector = self.source[start..self.pos + 1].trim();
+        let selector = self.source[start..self.pos + 1]
+            .split("/*").nth(0).expect("cannot filter comments on rule name")
+            .trim();
 
         Ok(Rule {
             selector,
@@ -143,19 +170,21 @@ impl<'a> Parser<'a> {
         self.next_token(); // skip @
         let start = self.pos;
 
-        let name = if let Some(token) = self.next_token() {
-            let Token(_, start, end) = token;
-
+        let name = if let Some(Token(Word, start, end)) = self.next_token() {
             &self.source[start..end + 1]
         } else {
             return Err(ParseError::Error);
         };
 
+        self.skip_while(|t| matches!(t, Some(Token(Comment, ..)) | Some(Token(Space, ..))));
+
         let start_params = self.pos + 1;
 
         self.skip_while(|t| !matches!(t, Some(Token(OpenCurly, ..))));
 
-        let params = self.source[start_params..self.pos + 1].trim();
+        let params = self.source[start_params..self.pos + 1]
+            .split("/*").nth(0).expect("cannot filter comments on at_rule params")
+            .trim();
 
         Ok(AtRule {
             name,
@@ -176,7 +205,7 @@ impl<'a> Parser<'a> {
             match token {
                 Token(Word, ..) => {
                     nodes.push(BlockChild::Declaration(self.parse_declaration()?));
-                    self.skip_while(|t| matches!(t, Some(Token(Space, ..))));
+                    self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
 
                     match self.tokenizer.peek() {
                         Some(Token(Semicolon, ..)) => {
@@ -189,9 +218,10 @@ impl<'a> Parser<'a> {
                 }
                 Token(At, ..) => {
                     nodes.push(BlockChild::AtRule(self.parse_at_rule()?));
-                    self.skip_while(|t| matches!(t, Some(Token(Space, ..))));
+                    self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
                     nodes.extend(self.parse_declartion_or_at_rule_list()?);
                 }
+                Token(Comment, ..) => nodes.push(BlockChild::Comment(self.parse_comment()?)),
                 _ => break,
             }
         }
@@ -260,6 +290,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_root_level_comment() {
+        assert_parse_ok!(
+            "/* hello */",
+            Root {
+                start: 0,
+                end: 10,
+                nodes: vec![RootChild::Comment(Comment {
+                    start: 0,
+                    end: 10,
+                    text: " hello "
+                })]
+            }
+        );
+    }
+
+    #[test]
     fn parse_empty_rule() {
         assert_parse_ok!(
             "foo {}",
@@ -271,6 +317,41 @@ mod tests {
                     end: 5,
                     selector: "foo",
                     nodes: vec![]
+                })]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_block_level_comment() {
+        assert_parse_ok!(
+            "foo {a:b; /* hello */ c:b}",
+            Root {
+                start: 0,
+                end: 25,
+                nodes: vec![RootChild::Rule(Rule {
+                    start: 0,
+                    end: 25,
+                    selector: "foo",
+                    nodes: vec![
+                        BlockChild::Declaration(Declaration {
+                            start: 5,
+                            end: 7,
+                            prop: "a",
+                            value: "b"
+                        }),
+                        BlockChild::Comment(Comment {
+                            start: 9,
+                            end: 20,
+                            text: " hello "
+                        }),
+                        BlockChild::Declaration(Declaration {
+                            start: 22,
+                            end: 24,
+                            prop: "c",
+                            value: "b"
+                        })
+                    ]
                 })]
             }
         );
