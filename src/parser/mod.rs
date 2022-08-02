@@ -6,7 +6,7 @@ pub mod tokenizer;
 pub mod visitor;
 
 #[derive(Debug, PartialEq)]
-pub struct  Comment<'a> {
+pub struct Comment<'a> {
     pub text: &'a str,
     pub start: usize,
     pub end: usize,
@@ -33,7 +33,7 @@ pub struct AtRule<'a> {
 pub enum BlockChild<'a> {
     AtRule(AtRule<'a>),
     Declaration(Declaration<'a>),
-    Comment(Comment<'a>)
+    Comment(Comment<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -48,7 +48,7 @@ pub struct Rule<'a> {
 pub enum RootChild<'a> {
     Rule(Rule<'a>),
     AtRule(AtRule<'a>),
-    Comment(Comment<'a>)
+    Comment(Comment<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -149,12 +149,18 @@ impl<'a> Parser<'a> {
     fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
         use TokenKind::*;
 
-        let start = self.pos;
+        let start = if let Some(Token(Word, start, _)) = self.next_token() {
+            start
+        } else {
+            return Err(ParseError::Error);
+        };
 
         self.skip_while(|t| !matches!(t, Some(Token(OpenCurly, ..))));
 
         let selector = self.source[start..self.pos + 1]
-            .split("/*").nth(0).expect("cannot filter comments on rule name")
+            .split("/*")
+            .next()
+            .expect("cannot filter comments on rule name")
             .trim();
 
         Ok(Rule {
@@ -183,7 +189,9 @@ impl<'a> Parser<'a> {
         self.skip_while(|t| !matches!(t, Some(Token(OpenCurly, ..))));
 
         let params = self.source[start_params..self.pos + 1]
-            .split("/*").nth(0).expect("cannot filter comments on at_rule params")
+            .split("/*")
+            .next()
+            .expect("cannot filter comments on at_rule params")
             .trim();
 
         Ok(AtRule {
@@ -205,7 +213,9 @@ impl<'a> Parser<'a> {
             match token {
                 Token(Word, ..) => {
                     nodes.push(BlockChild::Declaration(self.parse_declaration()?));
-                    self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
+                    self.skip_while(|t| {
+                        matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..)))
+                    });
 
                     match self.tokenizer.peek() {
                         Some(Token(Semicolon, ..)) => {
@@ -218,7 +228,9 @@ impl<'a> Parser<'a> {
                 }
                 Token(At, ..) => {
                     nodes.push(BlockChild::AtRule(self.parse_at_rule()?));
-                    self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
+                    self.skip_while(|t| {
+                        matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..)))
+                    });
                     nodes.extend(self.parse_declartion_or_at_rule_list()?);
                 }
                 Token(Comment, ..) => nodes.push(BlockChild::Comment(self.parse_comment()?)),

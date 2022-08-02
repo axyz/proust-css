@@ -72,7 +72,7 @@ macro_rules! consume {
         if let Some((_, _)) = $input.next() {
             $expr
         };
-    }
+    };
 }
 
 macro_rules! T {
