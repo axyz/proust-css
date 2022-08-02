@@ -29,30 +29,33 @@ pub trait Visitor {
 
 pub fn walk_root<V: Visitor>(visitor: &mut V, root: &Root) {
     for child in &root.nodes {
-        match child {
-            RootChild::Rule(rule) => visitor.visit_rule(rule),
-            RootChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
-            RootChild::Comment(comment) => visitor.visit_comment(comment),
+        match root.allocator.get(*child) {
+            Some(Node::Rule(rule)) => visitor.visit_rule(rule),
+            Some(Node::AtRule(at_rule)) => visitor.visit_at_rule(at_rule),
+            Some(Node::Comment(comment)) => visitor.visit_comment(comment),
+            _ => {}
         }
     }
 }
 
 pub fn walk_rule<V: Visitor>(visitor: &mut V, rule: &Rule) {
     for child in &rule.nodes {
-        match child {
-            BlockChild::Declaration(decl) => visitor.visit_declaration(decl),
-            BlockChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
-            BlockChild::Comment(comment) => visitor.visit_comment(comment),
+        match rule.allocator.get(*child) {
+            Some(Node::Declaration(decl)) => visitor.visit_declaration(decl),
+            Some(Node::AtRule(at_rule)) => visitor.visit_at_rule(at_rule),
+            Some(Node::Comment(comment)) => visitor.visit_comment(comment),
+            _ => {}
         }
     }
 }
 
 pub fn walk_at_rule<V: Visitor>(visitor: &mut V, at_rule: &AtRule) {
     for child in &at_rule.nodes {
-        match child {
-            BlockChild::Declaration(decl) => visitor.visit_declaration(decl),
-            BlockChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
-            BlockChild::Comment(comment) => visitor.visit_comment(comment),
+        match at_rule.allocator.get(*child) {
+            Some(Node::Declaration(decl)) => visitor.visit_declaration(decl),
+            Some(Node::AtRule(at_rule)) => visitor.visit_at_rule(at_rule),
+            Some(Node::Comment(comment)) => visitor.visit_comment(comment),
+            _ => {}
         }
     }
 }

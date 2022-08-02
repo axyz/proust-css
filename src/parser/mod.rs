@@ -6,6 +6,49 @@ pub mod tokenizer;
 pub mod visitor;
 
 #[derive(Debug, PartialEq)]
+pub struct VectorAllocator<T> {
+    pub data: Vec<Option<T>>
+}
+
+impl <T>VectorAllocator<T> {
+    pub fn new() -> Self {
+        VectorAllocator { data: vec![] }
+    }
+
+    pub fn push(&mut self, el: T) -> usize {
+        let index = self.data.len();
+        self.data.push(Some(el));
+        index
+    }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if let Some(el) = self.data.get(index) {
+            el.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if let Some(el) = self.data.get_mut(index) {
+            el.as_mut()
+        } else {
+            None
+        }
+    }
+
+    pub fn remove(&mut self, index: usize) -> Option<T> {
+        if let Some(el) = self.data.remove(index) {
+            self.data.insert(index, None);
+            Some(el)
+        } else {
+            None
+        }
+    }
+}
+
+
+#[derive(Debug, PartialEq)]
 pub struct Comment<'a> {
     pub text: &'a str,
     pub start: usize,
@@ -22,9 +65,10 @@ pub struct Declaration<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct AtRule<'a> {
+    pub allocator: &'a VectorAllocator<Node<'a>>,
     pub name: &'a str,
     pub params: &'a str,
-    pub nodes: Vec<BlockChild<'a>>,
+    pub nodes: Vec<usize>,
     pub start: usize,
     pub end: usize,
 }
@@ -37,9 +81,18 @@ pub enum BlockChild<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum Node<'a> {
+    Rule(Rule<'a>),
+    AtRule(AtRule<'a>),
+    Declaration(Declaration<'a>),
+    Comment(Comment<'a>),
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Rule<'a> {
+    pub allocator: &'a VectorAllocator<Node<'a>>,
     pub selector: &'a str,
-    pub nodes: Vec<BlockChild<'a>>,
+    pub nodes: Vec<usize>,
     pub start: usize,
     pub end: usize,
 }
@@ -53,13 +106,15 @@ pub enum RootChild<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Root<'a> {
-    pub nodes: Vec<RootChild<'a>>,
+    pub allocator: &'a VectorAllocator<Node<'a>>,
+    pub nodes: Vec<usize>,
     pub start: usize,
     pub end: usize,
 }
 
 pub struct Parser<'a> {
     tokenizer: Peekable<Tokenizer<'a>>,
+    allocator: VectorAllocator<Node<'a>>,
     source: &'a str,
     pos: usize,
 }
@@ -68,22 +123,29 @@ impl<'a> Parser<'a> {
     pub fn new(input: &'a str) -> Self {
         Parser {
             tokenizer: Tokenizer::new(input).peekable(),
+            allocator: VectorAllocator::new(),
             source: input,
             pos: 0,
         }
     }
 
-    pub fn parse(&mut self) -> Result<Root<'a>, ParseError> {
+    pub fn parse(&'a mut self) -> Result<Root, ParseError> {
         use TokenKind::*;
-        let mut nodes: Vec<RootChild<'a>> = vec![];
+        let mut nodes: Vec<usize> = vec![];
         let start = self.pos;
+        let allocator = &mut self.allocator;
 
         while let Some(token) = self.tokenizer.peek() {
             match token {
-                Token(Space, ..) => self.skip_while(|t| matches!(t, Some(Token(Space, ..)))),
-                Token(At, ..) => nodes.push(RootChild::AtRule(self.parse_at_rule()?)),
-                Token(Word, ..) => nodes.push(RootChild::Rule(self.parse_rule()?)),
-                Token(Comment, ..) => nodes.push(RootChild::Comment(self.parse_comment()?)),
+                Token(Space, ..) => {self.skip_while(|t| matches!(t, Some(Token(Space, ..))));}
+                Token(At, ..) => {
+                    nodes.push(allocator.push(Node::AtRule(self.parse_at_rule()?)));
+                }
+                Token(Word, ..) => {
+                    nodes.push(allocator.push(Node::Rule(self.parse_rule()?)));
+                }
+                Token(Comment, ..) => {
+                    nodes.push(allocator.push(Node::Comment(self.parse_comment()?)));}
                 _ => {
                     self.next_token();
                 }
@@ -91,7 +153,7 @@ impl<'a> Parser<'a> {
         }
 
         let end = self.pos;
-        Ok(Root { nodes, start, end })
+        Ok(Root { allocator: &self.allocator, nodes, start, end })
     }
 
     fn parse_comment(&mut self) -> Result<Comment<'a>, ParseError> {
@@ -146,7 +208,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_rule(&mut self) -> Result<Rule<'a>, ParseError> {
+    fn parse_rule(&'a mut self) -> Result<Rule<'a>, ParseError> {
         use TokenKind::*;
 
         let start = if let Some(Token(Word, start, _)) = self.next_token() {
@@ -164,6 +226,7 @@ impl<'a> Parser<'a> {
             .trim();
 
         Ok(Rule {
+            allocator: &self.allocator,
             selector,
             nodes: self.parse_block()?,
             start,
@@ -171,7 +234,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_at_rule(&mut self) -> Result<AtRule<'a>, ParseError> {
+    fn parse_at_rule(&'a mut self) -> Result<AtRule<'a>, ParseError> {
         use TokenKind::*;
         self.next_token(); // skip @
         let start = self.pos;
@@ -195,6 +258,7 @@ impl<'a> Parser<'a> {
             .trim();
 
         Ok(AtRule {
+            allocator: &self.allocator,
             name,
             params,
             nodes: self.parse_block()?,
@@ -203,16 +267,17 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_declartion_or_at_rule_list(&mut self) -> Result<Vec<BlockChild<'a>>, ParseError> {
+    fn parse_declartion_or_at_rule_list(&'a mut self) -> Result<Vec<usize>, ParseError> {
         use TokenKind::*;
-        let mut nodes: Vec<BlockChild<'a>> = vec![];
+        let nodes: Vec<usize> = vec![];
+        let allocator = &self.allocator;
 
         self.skip_while(|t| matches!(t, Some(Token(Space, ..))));
 
         while let Some(token) = self.tokenizer.peek() {
             match token {
                 Token(Word, ..) => {
-                    nodes.push(BlockChild::Declaration(self.parse_declaration()?));
+                    nodes.push(allocator.push(Node::Declaration(self.parse_declaration()?)));
                     self.skip_while(|t| {
                         matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..)))
                     });
@@ -227,13 +292,13 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token(At, ..) => {
-                    nodes.push(BlockChild::AtRule(self.parse_at_rule()?));
+                    nodes.push(allocator.push(Node::AtRule(self.parse_at_rule()?)));
                     self.skip_while(|t| {
                         matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..)))
                     });
                     nodes.extend(self.parse_declartion_or_at_rule_list()?);
                 }
-                Token(Comment, ..) => nodes.push(BlockChild::Comment(self.parse_comment()?)),
+                Token(Comment, ..) => nodes.push(allocator.push(Node::Comment(self.parse_comment()?))),
                 _ => break,
             }
         }
@@ -243,7 +308,7 @@ impl<'a> Parser<'a> {
         Ok(nodes)
     }
 
-    fn parse_block(&mut self) -> Result<Vec<BlockChild<'a>>, ParseError> {
+    fn parse_block(&'a mut self) -> Result<Vec<usize>, ParseError> {
         use TokenKind::*;
 
         if let Some(Token(OpenCurly, ..)) = self.next_token() {
@@ -287,231 +352,5 @@ mod tests {
         ($input: expr, $output: expr) => {
             assert_eq!(Parser::new($input).parse(), Ok($output));
         };
-    }
-
-    #[test]
-    fn parse_empty() {
-        assert_parse_ok!(
-            "",
-            Root {
-                start: 0,
-                end: 0,
-                nodes: vec![]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_root_level_comment() {
-        assert_parse_ok!(
-            "/* hello */",
-            Root {
-                start: 0,
-                end: 10,
-                nodes: vec![RootChild::Comment(Comment {
-                    start: 0,
-                    end: 10,
-                    text: " hello "
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_empty_rule() {
-        assert_parse_ok!(
-            "foo {}",
-            Root {
-                start: 0,
-                end: 5,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 5,
-                    selector: "foo",
-                    nodes: vec![]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_block_level_comment() {
-        assert_parse_ok!(
-            "foo {a:b; /* hello */ c:b}",
-            Root {
-                start: 0,
-                end: 25,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 25,
-                    selector: "foo",
-                    nodes: vec![
-                        BlockChild::Declaration(Declaration {
-                            start: 5,
-                            end: 7,
-                            prop: "a",
-                            value: "b"
-                        }),
-                        BlockChild::Comment(Comment {
-                            start: 9,
-                            end: 20,
-                            text: " hello "
-                        }),
-                        BlockChild::Declaration(Declaration {
-                            start: 22,
-                            end: 24,
-                            prop: "c",
-                            value: "b"
-                        })
-                    ]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_rule_with_declaration() {
-        assert_parse_ok!(
-            "foo { a: b }",
-            Root {
-                start: 0,
-                end: 11,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 11,
-                    selector: "foo",
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 6,
-                        end: 9,
-                        prop: "a",
-                        value: "b"
-                    })]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_empty_at_rule() {
-        assert_parse_ok!(
-            "@foo {}",
-            Root {
-                start: 0,
-                end: 6,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 6,
-                    name: "foo",
-                    params: "",
-                    nodes: vec![]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_empty_at_rule_with_params() {
-        assert_parse_ok!(
-            "@foo (bar) {}",
-            Root {
-                start: 0,
-                end: 12,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 12,
-                    name: "foo",
-                    params: "(bar)",
-                    nodes: vec![]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_at_rule_with_declaration() {
-        assert_parse_ok!(
-            "@foo { a: b }",
-            Root {
-                start: 0,
-                end: 12,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 12,
-                    name: "foo",
-                    params: "",
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 7,
-                        end: 10,
-                        prop: "a",
-                        value: "b"
-                    })]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_at_rule_with_declaration_and_params() {
-        assert_parse_ok!(
-            "@foo (bar) { a: b }",
-            Root {
-                start: 0,
-                end: 18,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 18,
-                    name: "foo",
-                    params: "(bar)",
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 13,
-                        end: 16,
-                        prop: "a",
-                        value: "b"
-                    })]
-                })]
-            }
-        );
-    }
-
-    #[test]
-    fn parse_mested_at_rule() {
-        assert_parse_ok!(
-            "foo { hello: world ; foo : bar; @foo { a:b } }",
-            Root {
-                start: 0,
-                end: 45,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 45,
-                    selector: "foo",
-                    nodes: vec![
-                        BlockChild::Declaration(Declaration {
-                            prop: "hello",
-                            value: "world",
-                            start: 6,
-                            end: 17
-                        }),
-                        BlockChild::Declaration(Declaration {
-                            prop: "foo",
-                            value: "bar",
-                            start: 21,
-                            end: 29
-                        }),
-                        BlockChild::AtRule(AtRule {
-                            start: 32,
-                            end: 43,
-                            name: "foo",
-                            params: "",
-                            nodes: vec![BlockChild::Declaration(Declaration {
-                                prop: "a",
-                                value: "b",
-                                start: 39,
-                                end: 41
-                            })]
-                        })
-                    ]
-                })]
-            }
-        );
     }
 }
