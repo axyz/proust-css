@@ -102,7 +102,8 @@ impl<'a> Parser<'a> {
             &self.source[start + 2..end - 1]
         } else {
             return Err(ParseError::Error);
-        }.to_string();
+        }
+        .to_string();
 
         let end = self.pos;
 
@@ -119,7 +120,8 @@ impl<'a> Parser<'a> {
             &self.source[start..end + 1]
         } else {
             return Err(ParseError::Error);
-        }.to_string();
+        }
+        .to_string();
 
         self.skip_while(|t| matches!(t, Some(Token(Space, ..)) | Some(Token(Comment, ..))));
 
@@ -135,7 +137,8 @@ impl<'a> Parser<'a> {
             &self.source[start..end + 1]
         } else {
             return Err(ParseError::Error);
-        }.to_string();
+        }
+        .to_string();
 
         let end = self.pos;
         Ok(Declaration {
@@ -181,7 +184,8 @@ impl<'a> Parser<'a> {
             &self.source[start..end + 1]
         } else {
             return Err(ParseError::Error);
-        }.to_string();
+        }
+        .to_string();
 
         self.skip_while(|t| matches!(t, Some(Token(Comment, ..)) | Some(Token(Space, ..))));
 

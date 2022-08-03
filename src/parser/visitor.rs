@@ -205,15 +205,11 @@ mod tests {
 
     #[test]
     fn visit_prefixer() {
-        pub struct Prefixer {
-            pub css: String,
-        }
+        pub struct Prefixer {}
 
         impl Prefixer {
             pub fn new() -> Self {
-                Self {
-                    css: "".to_string(),
-                }
+                Self {}
             }
         }
 
@@ -224,21 +220,15 @@ mod tests {
 
             fn visit_rule(&mut self, rule: &mut Rule) {
                 rule.selector = format!("-foo-{}", rule.selector);
-                self.css.push_str(&format!("{}{{", rule.selector));
                 walk_rule_mut(self, rule);
-                self.css.push_str("}");
             }
 
             fn visit_at_rule(&mut self, at_rule: &mut AtRule) {
-                self.css
-                    .push_str(&format!("@{} {}{{", at_rule.name, at_rule.params));
                 walk_at_rule_mut(self, at_rule);
-                self.css.push_str("}");
             }
 
             fn visit_declaration(&mut self, decl: &mut Declaration) {
                 decl.prop = format!("-foo-{}", decl.prop);
-                self.css.push_str(&format!("{}:{};", decl.prop, decl.value));
             }
         }
 
@@ -250,18 +240,23 @@ mod tests {
 
         m.visit_root(&mut root);
 
-        assert_eq!(root, Root { start: 0, end: 19, nodes: vec![
-            RootChild::Rule(Rule {
+        assert_eq!(
+            root,
+            Root {
                 start: 0,
                 end: 19,
-                selector: "-foo-foo".to_string(),
-                nodes: vec![BlockChild::Declaration(Declaration {
-                    start: 6,
-                    end: 17,
-                    prop: "-foo-hello".to_string(),
-                    value: "world".to_string()
-                })
-            ]})
-        ]});
+                nodes: vec![RootChild::Rule(Rule {
+                    start: 0,
+                    end: 19,
+                    selector: "-foo-foo".to_string(),
+                    nodes: vec![BlockChild::Declaration(Declaration {
+                        start: 6,
+                        end: 17,
+                        prop: "-foo-hello".to_string(),
+                        value: "world".to_string()
+                    })]
+                })]
+            }
+        );
     }
 }
