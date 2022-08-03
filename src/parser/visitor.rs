@@ -116,6 +116,8 @@ pub fn walk_at_rule_mut<V: VisitorMut>(visitor: &mut V, at_rule: &mut AtRule) {
 
 #[cfg(test)]
 mod tests {
+    use crate::{decl, root, root_rule};
+
     use super::*;
 
     #[test]
@@ -242,21 +244,16 @@ mod tests {
 
         assert_eq!(
             root,
-            Root {
-                start: 0,
-                end: 19,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 19,
-                    selector: "-foo-foo".to_string(),
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 6,
-                        end: 17,
-                        prop: "-foo-hello".to_string(),
-                        value: "world".to_string()
-                    })]
-                })]
-            }
+            root!(
+                0,
+                19,
+                vec![root_rule!(
+                    0,
+                    19,
+                    "-foo-foo",
+                    vec![decl!(6, 17, "-foo-hello", "world")]
+                )]
+            )
         );
     }
 }

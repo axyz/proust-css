@@ -4,6 +4,8 @@ use std::iter::Peekable;
 pub mod error;
 pub mod tokenizer;
 pub mod visitor;
+#[macro_use]
+mod macros;
 
 #[derive(Debug, PartialEq)]
 pub struct Comment {
@@ -289,89 +291,42 @@ impl<'a> Parser<'a> {
 mod tests {
     use super::*;
 
-    macro_rules! assert_parse_ok {
-        ($input: expr, $output: expr) => {
-            assert_eq!(Parser::new($input).parse(), Ok($output));
-        };
-    }
-
     #[test]
     fn parse_empty() {
-        assert_parse_ok!(
-            "",
-            Root {
-                start: 0,
-                end: 0,
-                nodes: vec![]
-            }
-        );
+        assert_parse_ok!("", root!(0, 0, vec![]));
     }
 
     #[test]
     fn parse_root_level_comment() {
         assert_parse_ok!(
             "/* hello */",
-            Root {
-                start: 0,
-                end: 10,
-                nodes: vec![RootChild::Comment(Comment {
-                    start: 0,
-                    end: 10,
-                    text: " hello ".to_string()
-                })]
-            }
+            root!(0, 10, vec![root_comment!(0, 10, " hello ")])
         );
     }
 
     #[test]
     fn parse_empty_rule() {
-        assert_parse_ok!(
-            "foo {}",
-            Root {
-                start: 0,
-                end: 5,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 5,
-                    selector: "foo".to_string(),
-                    nodes: vec![]
-                })]
-            }
-        );
+        assert_parse_ok!("foo {}", root!(0, 5, vec![root_rule!(0, 5, "foo", vec![])]));
     }
 
     #[test]
     fn parse_block_level_comment() {
         assert_parse_ok!(
             "foo {a:b; /* hello */ c:b}",
-            Root {
-                start: 0,
-                end: 25,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 25,
-                    selector: "foo".to_string(),
-                    nodes: vec![
-                        BlockChild::Declaration(Declaration {
-                            start: 5,
-                            end: 7,
-                            prop: "a".to_string(),
-                            value: "b".to_string()
-                        }),
-                        BlockChild::Comment(Comment {
-                            start: 9,
-                            end: 20,
-                            text: " hello ".to_string()
-                        }),
-                        BlockChild::Declaration(Declaration {
-                            start: 22,
-                            end: 24,
-                            prop: "c".to_string(),
-                            value: "b".to_string()
-                        })
+            root!(
+                0,
+                25,
+                vec![root_rule!(
+                    0,
+                    25,
+                    "foo",
+                    vec![
+                        decl!(5, 7, "a", "b"),
+                        comment!(9, 20, " hello "),
+                        decl!(22, 24, "c", "b")
                     ]
-                })]
-            }
+                )]
+            )
         );
     }
 
@@ -379,21 +334,11 @@ mod tests {
     fn parse_rule_with_declaration() {
         assert_parse_ok!(
             "foo { a: b }",
-            Root {
-                start: 0,
-                end: 11,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 11,
-                    selector: "foo".to_string(),
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 6,
-                        end: 9,
-                        prop: "a".to_string(),
-                        value: "b".to_string()
-                    })]
-                })]
-            }
+            root!(
+                0,
+                11,
+                vec![root_rule!(0, 11, "foo", vec![decl!(6, 9, "a", "b")])]
+            )
         );
     }
 
@@ -401,17 +346,7 @@ mod tests {
     fn parse_empty_at_rule() {
         assert_parse_ok!(
             "@foo {}",
-            Root {
-                start: 0,
-                end: 6,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 6,
-                    name: "foo".to_string(),
-                    params: "".to_string(),
-                    nodes: vec![]
-                })]
-            }
+            root!(0, 6, vec![root_at_rule!(0, 6, "foo", "", vec![])])
         );
     }
 
@@ -419,17 +354,7 @@ mod tests {
     fn parse_empty_at_rule_with_params() {
         assert_parse_ok!(
             "@foo (bar) {}",
-            Root {
-                start: 0,
-                end: 12,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 12,
-                    name: "foo".to_string(),
-                    params: "(bar)".to_string(),
-                    nodes: vec![]
-                })]
-            }
+            root!(0, 12, vec![root_at_rule!(0, 12, "foo", "(bar)", vec![])])
         );
     }
 
@@ -437,22 +362,17 @@ mod tests {
     fn parse_at_rule_with_declaration() {
         assert_parse_ok!(
             "@foo { a: b }",
-            Root {
-                start: 0,
-                end: 12,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 12,
-                    name: "foo".to_string(),
-                    params: "".to_string(),
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 7,
-                        end: 10,
-                        prop: "a".to_string(),
-                        value: "b".to_string()
-                    })]
-                })]
-            }
+            root!(
+                0,
+                12,
+                vec![root_at_rule!(
+                    0,
+                    12,
+                    "foo",
+                    "",
+                    vec![decl!(7, 10, "a", "b")]
+                )]
+            )
         );
     }
 
@@ -460,22 +380,17 @@ mod tests {
     fn parse_at_rule_with_declaration_and_params() {
         assert_parse_ok!(
             "@foo (bar) { a: b }",
-            Root {
-                start: 0,
-                end: 18,
-                nodes: vec![RootChild::AtRule(AtRule {
-                    start: 0,
-                    end: 18,
-                    name: "foo".to_string(),
-                    params: "(bar)".to_string(),
-                    nodes: vec![BlockChild::Declaration(Declaration {
-                        start: 13,
-                        end: 16,
-                        prop: "a".to_string(),
-                        value: "b".to_string()
-                    })]
-                })]
-            }
+            root!(
+                0,
+                18,
+                vec![root_at_rule!(
+                    0,
+                    18,
+                    "foo",
+                    "(bar)",
+                    vec![decl!(13, 16, "a", "b")]
+                )]
+            )
         );
     }
 
@@ -483,41 +398,20 @@ mod tests {
     fn parse_mested_at_rule() {
         assert_parse_ok!(
             "foo { hello: world ; foo : bar; @foo { a:b } }",
-            Root {
-                start: 0,
-                end: 45,
-                nodes: vec![RootChild::Rule(Rule {
-                    start: 0,
-                    end: 45,
-                    selector: "foo".to_string(),
-                    nodes: vec![
-                        BlockChild::Declaration(Declaration {
-                            prop: "hello".to_string(),
-                            value: "world".to_string(),
-                            start: 6,
-                            end: 17
-                        }),
-                        BlockChild::Declaration(Declaration {
-                            prop: "foo".to_string(),
-                            value: "bar".to_string(),
-                            start: 21,
-                            end: 29
-                        }),
-                        BlockChild::AtRule(AtRule {
-                            start: 32,
-                            end: 43,
-                            name: "foo".to_string(),
-                            params: "".to_string(),
-                            nodes: vec![BlockChild::Declaration(Declaration {
-                                prop: "a".to_string(),
-                                value: "b".to_string(),
-                                start: 39,
-                                end: 41
-                            })]
-                        })
+            root!(
+                0,
+                45,
+                vec![root_rule!(
+                    0,
+                    45,
+                    "foo",
+                    vec![
+                        decl!(6, 17, "hello", "world"),
+                        decl!(21, 29, "foo", "bar"),
+                        at_rule!(32, 43, "foo", "", vec![decl!(39, 41, "a", "b")])
                     ]
-                })]
-            }
+                )]
+            )
         );
     }
 }
