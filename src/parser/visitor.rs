@@ -57,6 +57,63 @@ pub fn walk_at_rule<V: Visitor>(visitor: &mut V, at_rule: &AtRule) {
     }
 }
 
+pub trait VisitorMut {
+    fn visit_root(&mut self, root: &mut Root)
+    where
+        Self: Sized,
+    {
+        walk_root_mut(self, root);
+    }
+
+    fn visit_rule(&mut self, rule: &mut Rule)
+    where
+        Self: Sized,
+    {
+        walk_rule_mut(self, rule);
+    }
+
+    fn visit_at_rule(&mut self, at_rule: &mut AtRule)
+    where
+        Self: Sized,
+    {
+        walk_at_rule_mut(self, at_rule);
+    }
+
+    fn visit_declaration(&mut self, _: &mut Declaration) {}
+
+    fn visit_comment(&mut self, _: &mut Comment) {}
+}
+
+pub fn walk_root_mut<V: VisitorMut>(visitor: &mut V, root: &mut Root) {
+    for child in root.nodes.iter_mut() {
+        match child {
+            RootChild::Rule(rule) => visitor.visit_rule(rule),
+            RootChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
+            RootChild::Comment(comment) => visitor.visit_comment(comment),
+        }
+    }
+}
+
+pub fn walk_rule_mut<V: VisitorMut>(visitor: &mut V, rule: &mut Rule) {
+    for child in rule.nodes.iter_mut() {
+        match child {
+            BlockChild::Declaration(decl) => visitor.visit_declaration(decl),
+            BlockChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
+            BlockChild::Comment(comment) => visitor.visit_comment(comment),
+        }
+    }
+}
+
+pub fn walk_at_rule_mut<V: VisitorMut>(visitor: &mut V, at_rule: &mut AtRule) {
+    for child in at_rule.nodes.iter_mut() {
+        match child {
+            BlockChild::Declaration(decl) => visitor.visit_declaration(decl),
+            BlockChild::AtRule(at_rule) => visitor.visit_at_rule(at_rule),
+            BlockChild::Comment(comment) => visitor.visit_comment(comment),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +201,67 @@ mod tests {
         m.visit_root(&p.parse().unwrap());
 
         assert_eq!(m.css, "foo{hello:world;foo:bar;@foo {a:b;}}");
+    }
+
+    #[test]
+    fn visit_prefixer() {
+        pub struct Prefixer {
+            pub css: String,
+        }
+
+        impl Prefixer {
+            pub fn new() -> Self {
+                Self {
+                    css: "".to_string(),
+                }
+            }
+        }
+
+        impl VisitorMut for Prefixer {
+            fn visit_root(&mut self, root: &mut Root) {
+                walk_root_mut(self, root);
+            }
+
+            fn visit_rule(&mut self, rule: &mut Rule) {
+                rule.selector = format!("-foo-{}", rule.selector);
+                self.css.push_str(&format!("{}{{", rule.selector));
+                walk_rule_mut(self, rule);
+                self.css.push_str("}");
+            }
+
+            fn visit_at_rule(&mut self, at_rule: &mut AtRule) {
+                self.css
+                    .push_str(&format!("@{} {}{{", at_rule.name, at_rule.params));
+                walk_at_rule_mut(self, at_rule);
+                self.css.push_str("}");
+            }
+
+            fn visit_declaration(&mut self, decl: &mut Declaration) {
+                decl.prop = format!("-foo-{}", decl.prop);
+                self.css.push_str(&format!("{}:{};", decl.prop, decl.value));
+            }
+        }
+
+        let mut p = Parser::new("foo { hello: world }");
+
+        let mut m = Prefixer::new();
+
+        let mut root = p.parse().unwrap();
+
+        m.visit_root(&mut root);
+
+        assert_eq!(root, Root { start: 0, end: 19, nodes: vec![
+            RootChild::Rule(Rule {
+                start: 0,
+                end: 19,
+                selector: "-foo-foo".to_string(),
+                nodes: vec![BlockChild::Declaration(Declaration {
+                    start: 6,
+                    end: 17,
+                    prop: "-foo-hello".to_string(),
+                    value: "world".to_string()
+                })
+            ]})
+        ]});
     }
 }
