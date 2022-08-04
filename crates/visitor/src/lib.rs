@@ -1,4 +1,4 @@
-use crate::parser::*;
+use ast::*;
 
 pub trait Visitor {
     fn visit_root(&mut self, root: &Root)
@@ -116,9 +116,9 @@ pub fn walk_at_rule_mut<V: VisitorMut>(visitor: &mut V, at_rule: &mut AtRule) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{decl, root, root_rule};
-
     use super::*;
+    use macros::*;
+    use parser::Parser;
 
     #[test]
     fn visit_counter() {

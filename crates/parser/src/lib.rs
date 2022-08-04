@@ -1,64 +1,7 @@
-use crate::parser::{error::ParseError, tokenizer::*};
+use ast::*;
+use error::ParseError;
 use std::iter::Peekable;
-
-pub mod error;
-pub mod tokenizer;
-pub mod visitor;
-#[macro_use]
-mod macros;
-
-#[derive(Debug, PartialEq)]
-pub struct Comment {
-    pub text: String,
-    pub start: usize,
-    pub end: usize,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Declaration {
-    pub prop: String,
-    pub value: String,
-    pub start: usize,
-    pub end: usize,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct AtRule {
-    pub name: String,
-    pub params: String,
-    pub nodes: Vec<BlockChild>,
-    pub start: usize,
-    pub end: usize,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum BlockChild {
-    AtRule(AtRule),
-    Declaration(Declaration),
-    Comment(Comment),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Rule {
-    pub selector: String,
-    pub nodes: Vec<BlockChild>,
-    pub start: usize,
-    pub end: usize,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum RootChild {
-    Rule(Rule),
-    AtRule(AtRule),
-    Comment(Comment),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Root {
-    pub nodes: Vec<RootChild>,
-    pub start: usize,
-    pub end: usize,
-}
+use tokenizer::{Token, TokenKind, Tokenizer};
 
 pub struct Parser<'a> {
     tokenizer: Peekable<Tokenizer<'a>>,
@@ -290,6 +233,7 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use macros::*;
 
     #[test]
     fn parse_empty() {
